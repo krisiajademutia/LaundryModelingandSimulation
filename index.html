@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laundromat DES Analytics</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- BACKGROUND BLOBS -->
+  <div class="bg-blob blob-1"></div>
+  <div class="bg-blob blob-2"></div>
+  <div class="bg-blob blob-3"></div>
+
+  <div class="app-container">
+    
+    <!-- HEADER -->
+    <header class="glass-panel">
+      <div class="header-content">
+        <div>
+          <h1>Laundromat Simulation <span class="badge">PRO</span></h1>
+          <p>Discrete Event Queue Optimization &amp; Bottleneck Analysis</p>
+        </div>
+        <div class="header-tags">
+          <span class="tag">SimPy Engine</span>
+          <span class="tag">FIFO</span>
+          <span class="tag tag-accent">Stochastic</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- TOP SECTION: Controls & Scenarios -->
+    <div class="grid-row controls-row">
+      
+      <div class="glass-panel col-controls">
+        <h2 class="panel-title">Resource Parameters</h2>
+        <div class="controls-grid">
+          <div class="ctrl-item">
+            <label>Washers</label>
+            <select id="n-wash">
+              <option>4</option><option>5</option><option selected>6</option><option>8</option><option>10</option>
+            </select>
+          </div>
+          <div class="ctrl-item">
+            <label>Dryers</label>
+            <select id="n-dry">
+              <option>4</option><option>6</option><option selected>8</option><option>10</option><option>12</option>
+            </select>
+          </div>
+          <div class="ctrl-item">
+            <label>Fold Tables</label>
+            <select id="n-fold">
+              <option>2</option><option selected>3</option><option>4</option><option>5</option>
+            </select>
+          </div>
+          <div class="ctrl-item">
+            <label>Soap Units</label>
+            <select id="n-soap">
+              <option>1</option><option selected>2</option><option>3</option>
+            </select>
+          </div>
+          <div class="ctrl-item slider-container">
+            <label>Simulation Speed: <span id="speed-val" class="mono">8x</span></label>
+            <input type="range" id="speed" min="1" max="30" value="8">
+          </div>
+        </div>
+        <div class="action-buttons">
+          <button class="btn btn-primary" id="btn-run" onclick="toggleSim()">
+            <span class="btn-icon">▶</span> <span id="btn-run-text">Start Simulation</span>
+          </button>
+          <button class="btn btn-secondary" onclick="resetSim()">
+            <span class="btn-icon">↺</span> Reset
+          </button>
+        </div>
+      </div>
+
+      <div class="glass-panel col-scenarios">
+        <h2 class="panel-title">What-If Scenarios</h2>
+        <div class="scenario-buttons">
+          <button class="scen-btn active" id="scen-base" onclick="loadScen('base')">
+            <span class="scen-name">Baseline</span>
+            <span class="scen-desc">6W / 8D (Bottleneck)</span>
+          </button>
+          <button class="scen-btn" id="scen-moredry" onclick="loadScen('moredry')">
+            <span class="scen-name">More Dryers</span>
+            <span class="scen-desc">6W / 12D</span>
+          </button>
+          <button class="scen-btn" id="scen-balanced" onclick="loadScen('balanced')">
+            <span class="scen-name">Balanced</span>
+            <span class="scen-desc">8W / 8D</span>
+          </button>
+          <button class="scen-btn" id="scen-peak" onclick="loadScen('peak')">
+            <span class="scen-name">Peak Stress</span>
+            <span class="scen-desc">Extreme Arrivals</span>
+          </button>
+          <button class="scen-btn" id="scen-optimal" onclick="loadScen('optimal')">
+            <span class="scen-name">Optimal</span>
+            <span class="scen-desc">8W / 10D</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TIMELINE -->
+    <div class="glass-panel timeline-panel">
+      <div class="timeline-wrap">
+        <div id="timeline-fill"></div>
+        <div class="peak-zone" style="left:8.33%;width:16.67%"></div>
+        <div class="peak-zone" style="left:41.67%;width:16.67%"></div>
+        <div id="clock-label" class="mono">08:00</div>
+      </div>
+    </div>
+
+    <!-- METRICS ROW -->
+    <div class="metrics-grid">
+      <div class="glass-panel metric-card" id="card-wait">
+        <div class="metric-icon wait-icon"></div>
+        <div class="metric-content">
+          <div class="metric-label">Avg Dryer Wait</div>
+          <div class="metric-value"><span id="val-wait">0.0</span> <span class="unit">min</span></div>
+          <div class="metric-sub" id="sub-wait">Peak wait: 0.0 min</div>
+        </div>
+      </div>
+      
+      <div class="glass-panel metric-card" id="card-wash">
+        <div class="metric-icon wash-icon"></div>
+        <div class="metric-content">
+          <div class="metric-label">Washer Utilization</div>
+          <div class="metric-value"><span id="val-wash">0</span> <span class="unit">%</span></div>
+          <div class="metric-sub" id="sub-wash">0 / 6 Running</div>
+        </div>
+      </div>
+
+      <div class="glass-panel metric-card" id="card-dry">
+        <div class="metric-icon dry-icon"></div>
+        <div class="metric-content">
+          <div class="metric-label">Dryer Utilization</div>
+          <div class="metric-value"><span id="val-dry">0</span> <span class="unit">%</span></div>
+          <div class="metric-sub" id="sub-dry">0 / 8 Running</div>
+        </div>
+      </div>
+
+      <div class="glass-panel metric-card" id="card-thru">
+        <div class="metric-icon thru-icon"></div>
+        <div class="metric-content">
+          <div class="metric-label">Throughput</div>
+          <div class="metric-value"><span id="val-thru">0</span></div>
+          <div class="metric-sub" id="sub-thru">0 arrivals today</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN VISUALIZATION ROW -->
+    <div class="grid-row main-viz-row">
+      
+      <div class="glass-panel col-floor">
+        <h2 class="panel-title">Live Floor State</h2>
+        <div class="legend">
+          <span class="leg-item"><i style="background:var(--col-arr)"></i> Arrive/Wait</span>
+          <span class="leg-item"><i style="background:var(--col-wash)"></i> Washing</span>
+          <span class="leg-item"><i style="background:var(--col-dry-q)"></i> Dry Wait (Bottleneck)</span>
+          <span class="leg-item"><i style="background:var(--col-dry)"></i> Drying</span>
+          <span class="leg-item"><i style="background:var(--col-fold)"></i> Folding</span>
+        </div>
+        <div class="canvas-container">
+          <canvas id="floor-canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="glass-panel col-charts">
+        <h2 class="panel-title">Queue Analytics</h2>
+        <div class="chart-wrapper">
+          <canvas id="chart-queue"></canvas>
+        </div>
+        <h2 class="panel-title mt-4">Utilization Analytics</h2>
+        <div class="chart-wrapper">
+          <canvas id="chart-util"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM ROW: Logs & Compare -->
+    <div class="grid-row log-row">
+      <div class="glass-panel col-log">
+        <h2 class="panel-title">Event Tracer (13 Events)</h2>
+        <div class="log-container" id="event-log"></div>
+      </div>
+      
+      <div class="glass-panel col-compare">
+        <h2 class="panel-title">Scenario Comparison Matrix</h2>
+        <div class="table-responsive">
+          <table class="glass-table">
+            <thead>
+              <tr>
+                <th>Scenario</th>
+                <th>Avg Dry Wait</th>
+                <th>Peak Queue</th>
+                <th>Throughput</th>
+                <th>Dryer Util</th>
+              </tr>
+            </thead>
+            <tbody id="cmp-body">
+              <tr>
+                <td colspan="5" class="empty-state">Run scenarios to populate results</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
