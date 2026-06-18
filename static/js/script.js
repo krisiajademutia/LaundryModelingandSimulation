@@ -9,17 +9,17 @@ let CFG = {
   foldMean: 8, foldSd: 2.5,
   detMin: 1, detMax: 3, loadMin: 2, loadMax: 3, transMin: 0, transMax: 5,
   maxLoads: 3,
-  arrNormal: 0.18, arrPeak: 0.45,
+  arrNormal: 0.06, arrPeak: 0.15,
   peakWindows: [[60, 180], [300, 420]], // 9-11am & 1-3pm
   simDur: 720, // 8am to 8pm
 };
 
 const SCENARIOS = {
-  base:     { nWash: 6, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.45 },
-  moredry:  { nWash: 6, nDry: 12, nFold: 3, nSoap: 2, arrPeak: 0.45 },
-  balanced: { nWash: 8, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.45 },
-  peak:     { nWash: 6, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.75 },
-  optimal:  { nWash: 8, nDry: 10, nFold: 4, nSoap: 3, arrPeak: 0.45 },
+  base:     { nWash: 6, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.15 },
+  moredry:  { nWash: 6, nDry: 12, nFold: 3, nSoap: 2, arrPeak: 0.15 },
+  balanced: { nWash: 8, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.15 },
+  peak:     { nWash: 6, nDry: 8, nFold: 3, nSoap: 2, arrPeak: 0.25 },
+  optimal:  { nWash: 8, nDry: 10, nFold: 4, nSoap: 3, arrPeak: 0.15 },
 };
 
 let simTime = 0, isRunning = false, animId = null, lastRealTime = null;
@@ -36,12 +36,20 @@ let currentScen = 'base';
 let chartQ, chartU;
 
 // ── RANDOM MATH ──────────────────────────────────────
-const randExp = rate => -Math.log(1 - Math.random()) / rate;
-const randUniform = (a, b) => a + Math.random() * (b - a);
+let masterSeed = Math.floor(Math.random() * 1000000); // Generates a new random day every page refresh
+let seed = masterSeed;
+function seededRandom() {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+const randExp = rate => -Math.log(1 - seededRandom()) / rate;
+const randUniform = (a, b) => a + seededRandom() * (b - a);
 const randNormal = (mu, sd) => {
-  let u = Math.random(), v = Math.random();
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
+  let u = seededRandom(), v = seededRandom();
+  while (u === 0) u = seededRandom();
+  while (v === 0) v = seededRandom();
   return mu + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -77,28 +85,9 @@ function schedule(time, type, data = {}) {
   eventQueue.sort((a, b) => a.time - b.time);
 }
 
-// ── CUSTOMER LIFECYCLE ───────────────────────────────
-function createCustomer() {
-  const nLoads = Math.floor(randUniform(1, CFG.maxLoads + 1));
-  const c = {
-    id: ++custIdCounter, arrTime: simTime, nLoads, state: 'arriving',
-    dryQEntry: null, firstDryStart: null,
-    tokensW: [], tokensD: [], tokenF: null
-  };
-  customers.push(c);
-  stats.arrivals++;
-  logMsg(simTime, `#${c.id} arrives (${nLoads} load${nLoads > 1 ? 's' : ''})`, 'ok');
-  
-  // 1. Request Soap
-  c.state = 'soap-q';
-  const tk = requestRes(soapRes);
-  if (tk.granted) schedule(simTime, 'soap-start', { cid: c.id });
-  else {
-    tk.onGrant = () => schedule(simTime, 'soap-start', { cid: c.id });
-    soapRes.queue[soapRes.queue.length - 1].onGrant = tk.onGrant;
-  }
-}
+let pregenTraffic = [];
 
+// ── CUSTOMER LIFECYCLE ───────────────────────────────
 function handleEvent(ev) {
   simTime = ev.time;
   const c = customers.find(x => x.id === ev.data.cid);
@@ -106,56 +95,73 @@ function handleEvent(ev) {
 
   switch (ev.type) {
     case 'arrival':
-      createCustomer();
-      const rate = CFG.peakWindows.some(([l, h]) => simTime >= l && simTime <= h) ? CFG.arrPeak : CFG.arrNormal;
-      const nextTime = simTime + randExp(rate);
-      if (nextTime < CFG.simDur) schedule(nextTime, 'arrival');
+      const pIdx = ev.data.pIdx;
+      const pc = pregenTraffic[pIdx];
+      const newCust = {
+        id: pc.id, arrTime: simTime, nLoads: pc.nLoads, state: 'arriving',
+        dryQEntry: null, firstDryStart: null,
+        tokensW: [], tokensD: [], tokenF: null, pc: pc
+      };
+      customers.push(newCust);
+      stats.arrivals++;
+      logMsg(simTime, `#${newCust.id} arrives (${newCust.nLoads} load${newCust.nLoads > 1 ? 's' : ''})`, 'ok');
+      
+      newCust.state = 'soap-q';
+      const tkS = requestRes(soapRes);
+      if (tkS.granted) schedule(simTime, 'soap-start', { cid: newCust.id });
+      else {
+        tkS.onGrant = () => schedule(simTime, 'soap-start', { cid: newCust.id });
+      }
+
+      if (pIdx + 1 < pregenTraffic.length) {
+        schedule(pregenTraffic[pIdx + 1].t, 'arrival', { pIdx: pIdx + 1 });
+      }
       break;
 
     case 'soap-start':
       c.state = 'soap';
-      schedule(simTime + randUniform(CFG.detMin, CFG.detMax), 'soap-done', { cid: c.id });
+      schedule(simTime + c.pc.sDur, 'soap-done', { cid: c.id });
       break;
 
     case 'soap-done':
       releaseRes(soapRes, {});
       c.state = 'wash-q';
       c.washQEntry = simTime;
-      for (let i = 0; i < c.nLoads; i++) c.tokensW.push(requestRes(washRes));
-      
-      const checkWash = setInterval(() => {
-        if (c.tokensW.every(t => t.granted)) {
-          clearInterval(checkWash);
-          schedule(simTime, 'wash-start', { cid: c.id });
-        }
-      }, 0);
+      c.tokensW = [];
+      const checkW = () => { if (c.tokensW.every(t => t.granted)) schedule(simTime, 'wash-start', { cid: c.id }); };
+      for (let i = 0; i < c.nLoads; i++) {
+        let tk = requestRes(washRes);
+        tk.onGrant = checkW;
+        c.tokensW.push(tk);
+      }
+      checkW();
       break;
 
     case 'wash-start':
       c.state = 'washing';
-      const washDur = CFG.washTime + randUniform(-1, 1);
-      schedule(simTime + randUniform(CFG.loadMin, CFG.loadMax) + washDur, 'wash-done', { cid: c.id });
+      const wWait = simTime - c.washQEntry;
+      stats.waitedW.push(wWait);
+      schedule(simTime + c.pc.loadStag + CFG.washTime + c.pc.wDur, 'wash-done', { cid: c.id });
       break;
 
     case 'wash-done':
       c.tokensW.forEach(t => releaseRes(washRes, t));
       c.tokensW = [];
-      const delay = randUniform(CFG.transMin, CFG.transMax);
       c.state = 'transfer';
-      schedule(simTime + delay, 'try-dry', { cid: c.id });
+      schedule(simTime + c.pc.tDur, 'try-dry', { cid: c.id });
       break;
 
     case 'try-dry':
       c.state = 'dry-q';
       c.dryQEntry = simTime;
-      for (let i = 0; i < c.nLoads; i++) c.tokensD.push(requestRes(dryRes));
-      
-      const checkDry = setInterval(() => {
-        if (c.tokensD.every(t => t.granted)) {
-          clearInterval(checkDry);
-          schedule(simTime, 'dry-start', { cid: c.id });
-        }
-      }, 0);
+      c.tokensD = [];
+      const checkD = () => { if (c.tokensD.every(t => t.granted)) schedule(simTime, 'dry-start', { cid: c.id }); };
+      for (let i = 0; i < c.nLoads; i++) {
+        let tk = requestRes(dryRes);
+        tk.onGrant = checkD;
+        c.tokensD.push(tk);
+      }
+      checkD();
       break;
 
     case 'dry-start':
@@ -167,22 +173,13 @@ function handleEvent(ev) {
         logMsg(simTime, `#${c.id} waited ${wait.toFixed(1)}m for dryer ⚠ BOTTLENECK`, 'err');
       }
       c.firstDryStart = simTime;
-      schedule(simTime + clamp(randNormal(CFG.dryMean, CFG.drySd), 45, 62), 'dry-done', { cid: c.id });
+      schedule(simTime + c.pc.dDur, 'dry-done', { cid: c.id });
       break;
 
     case 'dry-done':
       c.tokensD.forEach(t => releaseRes(dryRes, t));
       c.tokensD = [];
       
-      // Auto-grant waiting dry tokens if capacity allows
-      dryRes.queue.forEach(t => {
-        if (!t.granted && dryRes.count < dryRes.cap) {
-          t.granted = true; dryRes.count++;
-          if (t.onGrant) t.onGrant();
-        }
-      });
-      dryRes.queue = dryRes.queue.filter(t => !t.granted);
-
       c.state = 'fold-q';
       c.tokenF = requestRes(foldRes);
       if (c.tokenF.granted) schedule(simTime, 'fold-start', { cid: c.id });
@@ -191,7 +188,7 @@ function handleEvent(ev) {
 
     case 'fold-start':
       c.state = 'folding';
-      schedule(simTime + Math.max(3, randNormal(CFG.foldMean * c.nLoads, CFG.foldSd)), 'fold-done', { cid: c.id });
+      schedule(simTime + c.pc.fDur, 'fold-done', { cid: c.id });
       break;
 
     case 'fold-done':
@@ -241,6 +238,14 @@ function updateUI() {
   document.getElementById('sub-wait').textContent = `Peak wait: ${stats.peakDryQ.toFixed(1)} min`;
   document.getElementById('card-wait').classList.toggle('warn', avgW > 10);
 
+  const avgWW = stats.waitedW.length ? (stats.waitedW.reduce((a, b) => a + b, 0) / stats.waitedW.length).toFixed(1) : '0.0';
+  const elWaitWash = document.getElementById('val-wait-wash');
+  if (elWaitWash) {
+    elWaitWash.textContent = avgWW;
+    document.getElementById('sub-wait-wash').textContent = `Washer queue: ${washRes.queue.length}`;
+    document.getElementById('card-wait-wash').classList.toggle('warn', avgWW > 10);
+  }
+
   const wUtil = Math.round((washRes.count / CFG.nWash) * 100);
   document.getElementById('val-wash').textContent = wUtil;
   document.getElementById('sub-wash').textContent = `${washRes.count} / ${CFG.nWash} Running`;
@@ -269,11 +274,12 @@ function updateUI() {
 
 function updateCompTable(scenKey) {
   const avgW = stats.waited.length ? (stats.waited.reduce((a, b) => a + b, 0) / stats.waited.length).toFixed(1) : '0.0';
+  const avgWW = stats.waitedW.length ? (stats.waitedW.reduce((a, b) => a + b, 0) / stats.waitedW.length).toFixed(1) : '0.0';
   const peak = Math.max(0, ...tsDQ);
   const thru = stats.arrivals ? ((stats.served / stats.arrivals) * 100).toFixed(1) : '0.0';
-  const dUtilAvg = Math.round(tsDU.reduce((a,b)=>a+b,0) / (tsDU.length||1));
+  const dUtilAvg = tsDU.length ? (tsDU.reduce((a, b) => a + b, 0) / tsDU.length).toFixed(0) : '0';
   
-  compResults[scenKey] = { avgW, peak, thru, dUtilAvg };
+  compResults[scenKey] = { avgW, avgWW, peak, thru, dUtilAvg };
 
   const tbody = document.getElementById('cmp-body');
   tbody.innerHTML = '';
@@ -294,8 +300,9 @@ function updateCompTable(scenKey) {
     if (k === scenKey) tr.className = 'active-row';
     const wCls = parseFloat(r.avgW) === bestW ? 'val-best' : (parseFloat(r.avgW) > 15 ? 'val-worst' : '');
     tr.innerHTML = `
-      <td>${scenNames[k]}</td>
+      <td>${scenNames[k] || k}</td>
       <td class="${wCls}">${r.avgW} min</td>
+      <td>${r.avgWW || '0.0'} min</td>
       <td>${r.peak} loads</td>
       <td>${r.thru}%</td>
       <td>${r.dUtilAvg}%</td>
@@ -414,8 +421,27 @@ function resetSim() {
   if (animId) cancelAnimationFrame(animId);
   
   simTime = 0; eventQueue = []; customers = [];
-  stats = { waited: [], served: 0, arrivals: 0, peakDryQ: 0 };
+  seed = masterSeed; // Force identical traffic across scenarios for this specific page load
+  stats = { waited: [], waitedW: [], served: 0, arrivals: 0, peakDryQ: 0 };
   tsT = []; tsWQ = []; tsDQ = []; tsWU = []; tsDU = [];
+  
+  // PREGENERATE ALL TRAFFIC AND DURATIONS
+  pregenTraffic = [];
+  let t = 0; let cid = 0;
+  while (t < CFG.simDur) {
+    cid++;
+    const rate = CFG.peakWindows.some(([l, h]) => t >= l && t <= h) ? CFG.arrPeak : CFG.arrNormal;
+    t += randExp(rate);
+    if (t >= CFG.simDur) break;
+    let nLoads = Math.floor(randUniform(1, CFG.maxLoads + 1));
+    pregenTraffic.push({ id: cid, t, nLoads, 
+      wDur: randUniform(-1, 1), dDur: clamp(randNormal(CFG.dryMean, CFG.drySd), 45, 62),
+      fDur: Math.max(3, randNormal(CFG.foldMean * nLoads, CFG.foldSd)),
+      sDur: randUniform(CFG.detMin, CFG.detMax), tDur: randUniform(CFG.transMin, CFG.transMax),
+      loadStag: randUniform(CFG.loadMin, CFG.loadMax)
+    });
+  }
+  if (pregenTraffic.length > 0) schedule(pregenTraffic[0].t, 'arrival', { pIdx: 0 });
   
   CFG.nWash = parseInt(document.getElementById('n-wash').value);
   CFG.nDry = parseInt(document.getElementById('n-dry').value);
@@ -431,7 +457,6 @@ function resetSim() {
   document.getElementById('btn-run-text').textContent = 'Start Simulation';
   
   initCharts(); updateUI(); drawFloor();
-  schedule(0, 'arrival');
 }
 
 function simStep(delta) {
@@ -447,7 +472,7 @@ function simStep(delta) {
   simTime = targetTime;
   takeSnapshot();
   
-  if (steps > 0 || Math.random() < 0.1) {
+  if (steps > 0 || seededRandom() < 0.1) {
     drawFloor();
     updateUI();
   }
@@ -479,6 +504,7 @@ window.toggleSim = function() {
 window.resetSim = resetSim;
 
 window.loadScen = function(key) {
+  document.getElementById('scen-custom').style.display = 'none';
   document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('scen-' + key).classList.add('active');
   currentScen = key;
@@ -497,5 +523,34 @@ document.getElementById('speed').addEventListener('input', e => {
 });
 
 // Boot
+['n-wash', 'n-dry', 'n-fold', 'n-soap'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    const w = parseInt(document.getElementById('n-wash').value);
+    const d = parseInt(document.getElementById('n-dry').value);
+    const f = parseInt(document.getElementById('n-fold').value);
+    const s = parseInt(document.getElementById('n-soap').value);
+    
+    let matchedKey = null;
+    for (const [k, v] of Object.entries(SCENARIOS)) {
+      if (v.nWash === w && v.nDry === d && v.nFold === f && v.nSoap === s) {
+        matchedKey = k; break;
+      }
+    }
+    
+    document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
+    if (matchedKey) {
+      document.getElementById('scen-custom').style.display = 'none';
+      document.getElementById('scen-' + matchedKey).classList.add('active');
+      currentScen = matchedKey;
+    } else {
+      document.getElementById('scen-custom').style.display = 'flex';
+      document.getElementById('scen-custom').classList.add('active');
+      document.getElementById('custom-desc').textContent = `${w}W / ${d}D`;
+      currentScen = `Custom ${w}W/${d}D`;
+    }
+    resetSim();
+  });
+});
+
 window.addEventListener('resize', drawFloor);
 resetSim();

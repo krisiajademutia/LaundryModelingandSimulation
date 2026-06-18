@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +8,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="static/css/style.css">
 </head>
+
 <body>
 
   <!-- BACKGROUND BLOBS -->
@@ -18,7 +22,7 @@
   <div class="bg-blob blob-3"></div>
 
   <div class="app-container">
-    
+
     <!-- HEADER -->
     <header class="glass-panel">
       <div class="header-content">
@@ -27,41 +31,54 @@
           <p>Discrete Event Queue Optimization &amp; Bottleneck Analysis</p>
         </div>
         <div class="header-tags">
-          <span class="tag">SimPy Engine</span>
-          <span class="tag">FIFO</span>
-          <span class="tag tag-accent">Stochastic</span>
+          <span class="tag"></span>
+          <span class="tag"></span>
+          <span class="tag tag-accent"></span>
         </div>
       </div>
     </header>
 
     <!-- TOP SECTION: Controls & Scenarios -->
     <div class="grid-row controls-row">
-      
+
       <div class="glass-panel col-controls">
         <h2 class="panel-title">Resource Parameters</h2>
         <div class="controls-grid">
           <div class="ctrl-item">
             <label>Washers</label>
             <select id="n-wash">
-              <option>4</option><option>5</option><option selected>6</option><option>8</option><option>10</option>
+              <option>4</option>
+              <option>5</option>
+              <option selected>6</option>
+              <option>8</option>
+              <option>10</option>
             </select>
           </div>
           <div class="ctrl-item">
             <label>Dryers</label>
             <select id="n-dry">
-              <option>4</option><option>6</option><option selected>8</option><option>10</option><option>12</option>
+              <option>4</option>
+              <option>6</option>
+              <option selected>8</option>
+              <option>10</option>
+              <option>12</option>
             </select>
           </div>
           <div class="ctrl-item">
             <label>Fold Tables</label>
             <select id="n-fold">
-              <option>2</option><option selected>3</option><option>4</option><option>5</option>
+              <option>2</option>
+              <option selected>3</option>
+              <option>4</option>
+              <option>5</option>
             </select>
           </div>
           <div class="ctrl-item">
             <label>Soap Units</label>
             <select id="n-soap">
-              <option>1</option><option selected>2</option><option>3</option>
+              <option>1</option>
+              <option selected>2</option>
+              <option>3</option>
             </select>
           </div>
           <div class="ctrl-item slider-container">
@@ -102,6 +119,10 @@
             <span class="scen-name">Optimal</span>
             <span class="scen-desc">8W / 10D</span>
           </button>
+          <button class="scen-btn" id="scen-custom" style="display: none;">
+            <span class="scen-name">Custom</span>
+            <span class="scen-desc" id="custom-desc">--</span>
+          </button>
         </div>
       </div>
 
@@ -127,7 +148,16 @@
           <div class="metric-sub" id="sub-wait">Peak wait: 0.0 min</div>
         </div>
       </div>
-      
+
+      <div class="glass-panel metric-card" id="card-wait-wash">
+        <div class="metric-icon wait-icon"></div>
+        <div class="metric-content">
+          <div class="metric-label">Avg Washer Wait</div>
+          <div class="metric-value"><span id="val-wait-wash">0.0</span> <span class="unit">min</span></div>
+          <div class="metric-sub" id="sub-wait-wash">Washer queue: 0</div>
+        </div>
+      </div>
+
       <div class="glass-panel metric-card" id="card-wash">
         <div class="metric-icon wash-icon"></div>
         <div class="metric-content">
@@ -158,7 +188,7 @@
 
     <!-- MAIN VISUALIZATION ROW -->
     <div class="grid-row main-viz-row">
-      
+
       <div class="glass-panel col-floor">
         <h2 class="panel-title">Live Floor State</h2>
         <div class="legend">
@@ -192,7 +222,7 @@
         <h2 class="panel-title">Event Tracer (13 Events)</h2>
         <div class="log-container" id="event-log"></div>
       </div>
-      
+
       <div class="glass-panel col-compare">
         <h2 class="panel-title">Scenario Comparison Matrix</h2>
         <div class="table-responsive">
@@ -201,6 +231,7 @@
               <tr>
                 <th>Scenario</th>
                 <th>Avg Dry Wait</th>
+                <th>Avg Wash Wait</th>
                 <th>Peak Queue</th>
                 <th>Throughput</th>
                 <th>Dryer Util</th>
@@ -208,7 +239,7 @@
             </thead>
             <tbody id="cmp-body">
               <tr>
-                <td colspan="5" class="empty-state">Run scenarios to populate results</td>
+                <td colspan="6" class="empty-state">Run scenarios to populate results</td>
               </tr>
             </tbody>
           </table>
@@ -220,4 +251,5 @@
 
   <script src="static/js/script.js"></script>
 </body>
+
 </html>
